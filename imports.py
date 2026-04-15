@@ -5,6 +5,7 @@ from typing import Optional
 from sqlcipher3 import connect, DatabaseError # It says these modules don't exist, but they do.
 
 DB_PATH = r"RoadsDepot2026.db"
+LOGDB_PATH = rf"RoadsDepotLog{datetime.now().strftime('%Y')}.db"
 
 MOBIELS_DICT = {"string": ["merk:", "model:", "opslag:"],
                 "int": ["totaal:"],
@@ -150,6 +151,69 @@ def test_connection(key: str):
     except DatabaseError:
         return False
 
+@contextmanager
+def open_logdb(logkey, timeout: int = 30):
+    # Currently unused!
+    """
+    Open a write SQLite connection to the log database.
+    Connection is closed automatically after use.
+    """
+    db = connect(
+        LOGDB_PATH,
+        timeout=timeout,
+        isolation_level="IMMEDIATE"
+    )
+
+    try:
+        db.execute(f"PRAGMA key = '{logkey}';")
+        db.execute("PRAGMA query_only = OFF;")
+        yield db
+    finally:
+        pass
+
+@contextmanager
+def open_old_logdb(logkey, path, timeout: int = 30):
+    # Currently unused!
+    """
+    Open a write SQLite connection to the log database.
+    Connection is closed automatically after use.
+    """
+    db = connect(
+        path,
+        timeout=timeout,
+        isolation_level="IMMEDIATE"
+    )
+
+    try:
+        db.execute(f"PRAGMA key = '{logkey}';")
+        db.execute("PRAGMA query_only = OFF;")
+        yield db
+    finally:
+        db.close()
+
+def check_log_exists():
+    # Currently unused!
+    """Check if the log database exists."""
+    if Path(LOGDB_PATH).is_file():
+        return True
+    else:
+        # Make new Log
+        # Because of unuse this will always return True
+        return True
+
+def create_new_log(ww):
+    # Currently unused!
+    """Makes a new log database"""
+    try:
+        db = connect(LOGDB_PATH)
+        db.execute("PRAGMA foreign_keys = ON;")
+        db.execute(f"PRAGMA key = '{ww}';")
+        db.execute(MAKE_NEW_LOG)
+        db.commit()
+        return True
+    except Exception as e:
+        return e
+
 def make_backup(key: str):
     """
     Makes a backup of the current database and log database.
@@ -157,7 +221,7 @@ def make_backup(key: str):
     """
 
     today = datetime.now().strftime("%Y-%m-%d")
-    backup_folder = Path(r".\Backups")
+    backup_folder = Path(r".\dbBackups")
     backup_path = Path(backup_folder)/f"backup{today}.db"
 
     # No log backup for now, as the log database is currently unused and would just take up space.

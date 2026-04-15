@@ -6,6 +6,9 @@ import tkinter as tk
 from tkinter.messagebox import showerror
 from tkinter import filedialog, font
 from os import path as _path, getenv
+import logging
+from logging.handlers import RotatingFileHandler
+
 from dotenv import load_dotenv
 
 import RoadsDepot2
@@ -13,6 +16,9 @@ from imports import (
     open_db_readonly,
     open_db_write,
     test_connection,
+    check_log_exists,
+    create_new_log,
+    open_old_logdb,
     make_backup,
     shared,
     DESKTOPS_DICT, CATEGORIE_COLUMNS, CATEGORIE_DICT)
@@ -24,10 +30,37 @@ _debug = True # False to eliminate debug printing from callback functions.
 # Toplevel3 is the Log-database Login page.
 # Toplevel4 is only show once every year to make a new Log-database
 
+from pathlib import Path
+
+LOG_DIR = r".\logs"
+LOG_FILE = LOG_DIR + r"\roadsdepot.log"
+
+logger = logging.getLogger("RoadsDepot")
+logger.setLevel(logging.DEBUG)
+
+handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=2_000_000,
+    backupCount=5,
+    encoding="utf-8",
+)
+handler.setFormatter(
+    logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+)
+logger.addHandler(handler)
+
+def log_exception(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    logger.error("Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback))
+
 def main(*args):
     '''Main entry point for the application.'''
     global root
+    sys.excepthook = log_exception # Set the custom exception handler
     root = tk.Tk()
+    root.report_callback_exception = log_exception
     root.protocol( 'WM_DELETE_WINDOW' , root.destroy)
     root.iconphoto(True, tk.PhotoImage(file=resource_path("logopng.png")))
     # Creates a toplevel widget.
@@ -475,8 +508,9 @@ def on_btnAanpassen(*args):
         if int(all_dict['A_kwaliteit']) + int(all_dict['B_kwaliteit']) + int(all_dict['C_kwaliteit']) > int(all_dict['totaal']):
             showerror("Input Error", "De som van A, B en C kwaliteit moet minder zijn dan het totaal.")
             return
-    except KeyError:
-        pass
+    except ValueError:
+        showerror("Input Error", "Een nummeriek input veld heeft iets anders gekregen dan een nummer.")
+        return
     
     # Map keys to match CATEGORIE_COLUMNS casing by creating a mapping from lowercase to actual column names
     key_mapping = {col.lower(): col for col in CATEGORIE_COLUMNS[categorie]}
@@ -594,11 +628,23 @@ def on_btnLog(*args):
     """Toplevel1 'Kiezen' button event handler.
     Button that lets you choose a database file."""
     # Currently unused!
+    # TODO: Do I even implement a log?
     if _debug:
         print('Inventaris_support.on_btnLog')
         for arg in args:
             print ('    another arg:', arg)
         sys.stdout.flush()
+
+    shared.path = rf'''{filedialog.askopenfilename(
+        title="Select Database",
+        filetypes=[("Database bestanden", "*.db"), ("Alle bestanden", "*.*")])}'''
+
+    if shared.path and shared.path.endswith(".db"):
+        _top3.deiconify()
+        _w3.dbEntry.configure(textvariable=tk.StringVar(value=shared.path))
+        _w3.dbwwEntry.focus_set()
+    else:
+        return
 
 def on_btnLogin(*args):
     """Toplevel2 login button event handler."""
@@ -616,7 +662,13 @@ def on_btnLogin(*args):
             _top1.deiconify()
             _top2.destroy()
             _w1.zoekEntryMerk.focus_set()
+            if not check_log_exists():
+                _top4.deiconify()
+                _w4.nieuwwwEntry.focus_set()
         elif shared.gebruiker == "gebruiker":
+            if not check_log_exists():
+                showerror("Login Fout", "Er is geen logbestand. Neem contact op met een begeleider.")
+                root.destroy()
             _w1.verwijderLabelframe.place_forget()
             _w1.btnToevoegen.destroy()
             _w1.ItemLabelNieuw.destroy()
@@ -637,11 +689,27 @@ def on_btnTerug(*args):
     """Toplevel1 'Terug' button event handler.
     After choosing a Log database file, let's you return to the main Database."""
     # Currently unused!
+    # TODO: Change logic to fit. Might not be needed.
     if _debug:
         print('Inventaris_support.on_btnTerug')
         for arg in args:
             print ('    another arg:', arg)
         sys.stdout.flush()
+
+    for c in _w1.Scrolledtreeview1.get_children(''):
+        _w1.Scrolledtreeview1.delete(c)
+
+    COLUMN_HEADS = ["Categorie", "Productnummer", "Aantal", "A_Kwaliteit", "B_Kwaliteit", "C_Kwaliteit", "Locatie", "Opmerking"]
+    _w1.Scrolledtreeview1.configure(columns=COLUMN_HEADS, show="headings")
+
+    for col in COLUMN_HEADS:
+        _w1.Scrolledtreeview1.heading(col, text=col)
+
+    _w1.btnZoeken.config(state=tk.NORMAL)
+    _w1.btnVerwijder.config(state=tk.NORMAL)
+    _w1.nieuwLabelframe.place(relx=0.005, rely=0.431, relwidth=0.989, relheight=0.522)
+    _w1.nieuwLabelframe.lift()
+    shared.is_log_active = False
 
 def on_btnVerwijder(*args):
     """Toplevel1 button to remove the selected, in the treeview, from the database."""
@@ -766,6 +834,7 @@ def on_logafsluitbtn(*args):
         for arg in args:
             print ('    another arg:', arg)
         sys.stdout.flush()
+    root.destroy()
 
 def on_logokbtn(*args):
     """Toplevel4 'OK' button event handler."""
@@ -775,6 +844,13 @@ def on_logokbtn(*args):
         for arg in args:
             print ('    another arg:', arg)
         sys.stdout.flush()
+    logww = _w4.nieuwwwEntry.get()
+    check = create_new_log(ww=logww)
+    if check != True:
+        showerror("Databes error", f"{check}")
+    else:
+        _top4.withdraw()
+        _top1.deiconify()
 
 def on_menuBeeldscherm(*args):
     """A function that changes the text of the search menu button to the category chosen by the user."""
@@ -856,6 +932,32 @@ def on_okBtn(*args):
         for arg in args:
             print ('    another arg:', arg)
         sys.stdout.flush()
+    logkey = _w3.dbwwEntry.get()
+    try:
+        with open_old_logdb(logkey, path=shared.path) as conn:
+            cur = conn.execute(queries.GET_LOG)
+            log_readout = cur.fetchall()
+    except Exception as e:
+        if _debug:
+            print(f"Database Error: {e}")
+        showerror("Database Error", "Er is een fout opgetreden bij het openenen van de log.")
+        return
+
+    for c in _w1.Scrolledtreeview1.get_children(''):
+        _w1.Scrolledtreeview1.delete(c)
+
+    _w1.Scrolledtreeview1.configure(columns=queries.LOG_COLUMS, show="headings")
+    for col in queries.LOG_COLUMS:
+        _w1.Scrolledtreeview1.heading(col, text=col)
+    for item in log_readout:
+        _w1.Scrolledtreeview1.insert("", "end", values=item)
+
+    _w1.nieuwLabelframe.place_forget()
+    _w1.btnVerwijder.config(state=tk.DISABLED)
+    _w1.btnZoeken.config(state=tk.DISABLED)
+    _w1.btnTerug.config(state=tk.NORMAL)
+    _top3.withdraw()
+    shared.is_log_active = True
 
 def usernameEnter(*args):
     """Toplevel2 username enterkey listener"""
@@ -945,8 +1047,9 @@ def on_btnToevoegen(*args):
         if int(all_dict['A_kwaliteit']) + int(all_dict['B_kwaliteit']) + int(all_dict['C_kwaliteit']) > int(all_dict['totaal']):
             showerror("Input Error", "De som van A, B en C kwaliteit moet minder zijn dan het totaal.")
             return
-    except KeyError:
-        pass
+    except ValueError:
+        showerror("Input Error", "Een nummeriek input veld heeft iets anders gekregen dan een nummer.")
+        return
     
     # Map keys to match CATEGORIE_COLUMNS casing by creating a mapping from lowercase to actual column names
     key_mapping = {col.lower(): col for col in CATEGORIE_COLUMNS[categorie]}
@@ -1051,5 +1154,8 @@ def on_btnToevoegen(*args):
     fill_treeview(query, params)
 
 if __name__ == '__main__':
-    RoadsDepot2.start_up()
+    try:
+        RoadsDepot2.start_up()
+    except Exception:
+        logging.critical("Unhandled exception occurred!", exc_info=True)
 ## PAGE FUNCTIONS END ###############################################
