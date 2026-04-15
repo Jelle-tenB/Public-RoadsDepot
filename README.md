@@ -23,3 +23,11 @@ There is an .exe available for direct use but I will explain how to run the code
 Login screen:
 
 ![Login Screen](https://github.com/Jelle-tenB/Public-RoadsDepot/blob/main/Pictures/LoginScreen.png)
+
+Main page with the category "Desktops" selected:
+
+![Main Window Desktops](https://github.com/Jelle-tenB/Public-RoadsDepot/blob/main/Pictures/MainWindow-Desktop.png)
+
+Main page with the category "Beeldschermen" (monitors) selected, which changes the input fields:
+
+![Main Window Beeldschermen](https://github.com/Jelle-tenB/Public-RoadsDepot/blob/main/Pictures/MainWindow-Beeldscherm.png)
